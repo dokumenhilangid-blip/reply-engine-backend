@@ -7,27 +7,20 @@ import requests
 app = FastAPI()
 
 
-# =========================
-# REQUEST MODEL
-# =========================
 class ChatRequest(BaseModel):
     message: str
 
 
-# =========================
+# ========================
 # GROQ CALL FUNCTION
-# =========================
+# ========================
+
 def call_groq(messages):
-
-    api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-        return "ERROR: GROQ_API_KEY not set"
 
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
         "Content-Type": "application/json"
     }
 
@@ -38,38 +31,29 @@ def call_groq(messages):
         "max_tokens": 512
     }
 
-    try:
+    response = requests.post(url, headers=headers, json=data)
 
-        response = requests.post(
-            url,
-            headers=headers,
-            json=data,
-            timeout=30
-        )
+    if response.status_code != 200:
+        return f"GROQ ERROR: {response.text}"
 
-        if response.status_code != 200:
-            return f"GROQ ERROR: {response.text}"
+    result = response.json()
 
-        result = response.json()
-
-        return result["choices"][0]["message"]["content"]
-
-    except Exception as e:
-
-        return f"SYSTEM ERROR: {str(e)}"
+    return result["choices"][0]["message"]["content"]
 
 
-# =========================
-# ROOT ENDPOINT
-# =========================
+# ========================
+# ROOT
+# ========================
+
 @app.get("/")
 def root():
     return {"status": "ok"}
 
 
-# =========================
-# CHAT ENDPOINT (WITH MEMORY)
-# =========================
+# ========================
+# CHAT ENDPOINT WITH MEMORY
+# ========================
+
 @app.post("/chat")
 def chat(req: ChatRequest):
 
@@ -78,7 +62,7 @@ def chat(req: ChatRequest):
     conn = get_conn()
     cursor = conn.cursor()
 
-    # ensure table exists
+    # create table if not exists
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,10 +89,8 @@ def chat(req: ChatRequest):
 
     rows = cursor.fetchall()
 
-    # reverse to chronological order
     rows.reverse()
 
-    # build messages context
     messages = [
         {
             "role": "system",
@@ -117,16 +99,20 @@ def chat(req: ChatRequest):
     ]
 
     for row in rows:
-
         messages.append({
             "role": row[0],
             "content": row[1]
         })
 
+    messages.append({
+        "role": "user",
+        "content": user_message
+    })
+
     # call groq with context
     ai_reply = call_groq(messages)
 
-    # save assistant reply
+    # save reply
     cursor.execute(
         "INSERT INTO chat_history (role, message) VALUES (?, ?)",
         ("assistant", ai_reply)
@@ -140,9 +126,10 @@ def chat(req: ChatRequest):
     }
 
 
-# =========================
+# ========================
 # HISTORY ENDPOINT
-# =========================
+# ========================
+
 @app.get("/history")
 def history():
 
@@ -153,21 +140,6 @@ def history():
         SELECT id, role, message
         FROM chat_history
         ORDER BY id DESC
-        LIMIT 50
-    """)
-
-    rows = cursor.fetchall()
-
-    conn.close()
-
-    return [
-        {
-            "id": row[0],
-            "role": row[1],
-            "message": row[2]
-        }
-        for row in rows
-    ]        ORDER BY id DESC
         LIMIT 50
     """)
 
