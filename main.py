@@ -185,3 +185,30 @@ def scrape():
         "status": "scrape complete",
         "records_added": len(sample_data)
     }
+
+@app.get("/data")
+def get_data():
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, source, content, created_at
+        FROM raw_data
+        ORDER BY id DESC
+        LIMIT 50
+    """)
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return [
+        {
+            "id": row[0],
+            "source": row[1],
+            "content": row[2],
+            "created_at": row[3]
+        }
+        for row in rows
+    ]
