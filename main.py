@@ -10,7 +10,6 @@ app = FastAPI()
 class ChatRequest(BaseModel):
     message: str
 
-
 def call_groq(user_message: str):
 
     url = "https://api.groq.com/openai/v1/chat/completions"
