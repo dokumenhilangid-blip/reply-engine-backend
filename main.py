@@ -7,15 +7,27 @@ import requests
 app = FastAPI()
 
 
+# =========================
+# REQUEST MODEL
+# =========================
 class ChatRequest(BaseModel):
     message: str
 
+
+# =========================
+# GROQ CALL FUNCTION
+# =========================
 def call_groq(messages):
+
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        return "ERROR: GROQ_API_KEY not set"
 
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
@@ -26,20 +38,38 @@ def call_groq(messages):
         "max_tokens": 512
     }
 
-    response = requests.post(url, headers=headers, json=data)
+    try:
 
-    if response.status_code != 200:
-        return f"GROQ ERROR: {response.text}"
+        response = requests.post(
+            url,
+            headers=headers,
+            json=data,
+            timeout=30
+        )
 
-    result = response.json()
+        if response.status_code != 200:
+            return f"GROQ ERROR: {response.text}"
 
-    return result["choices"][0]["message"]["content"]
+        result = response.json()
 
+        return result["choices"][0]["message"]["content"]
+
+    except Exception as e:
+
+        return f"SYSTEM ERROR: {str(e)}"
+
+
+# =========================
+# ROOT ENDPOINT
+# =========================
 @app.get("/")
 def root():
     return {"status": "ok"}
 
 
+# =========================
+# CHAT ENDPOINT (WITH MEMORY)
+# =========================
 @app.post("/chat")
 def chat(req: ChatRequest):
 
@@ -48,6 +78,7 @@ def chat(req: ChatRequest):
     conn = get_conn()
     cursor = conn.cursor()
 
+    # ensure table exists
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +87,7 @@ def chat(req: ChatRequest):
         )
     """)
 
+    # save user message
     cursor.execute(
         "INSERT INTO chat_history (role, message) VALUES (?, ?)",
         ("user", user_message)
@@ -63,45 +95,54 @@ def chat(req: ChatRequest):
 
     conn.commit()
 
-    # call Groq AI
-    ai_reply = call_groq(user_message)
+    # get last 10 messages
+    cursor.execute("""
+        SELECT role, message
+        FROM chat_history
+        ORDER BY id DESC
+        LIMIT 10
+    """)
 
-    # ambil 10 history terakhir
-cursor.execute("""
-    SELECT role, message
-    FROM chat_history
-    ORDER BY id DESC
-    LIMIT 10
-""")
+    rows = cursor.fetchall()
 
-rows = cursor.fetchall()
+    # reverse to chronological order
+    rows.reverse()
 
-# balik urutan supaya chronological
-rows.reverse()
+    # build messages context
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful assistant."
+        }
+    ]
 
-messages = [
-    {
-        "role": "system",
-        "content": "You are a helpful assistant."
+    for row in rows:
+
+        messages.append({
+            "role": row[0],
+            "content": row[1]
+        })
+
+    # call groq with context
+    ai_reply = call_groq(messages)
+
+    # save assistant reply
+    cursor.execute(
+        "INSERT INTO chat_history (role, message) VALUES (?, ?)",
+        ("assistant", ai_reply)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "reply": ai_reply
     }
-]
 
-# masukkan history
-for row in rows:
-    messages.append({
-        "role": row[0],
-        "content": row[1]
-    })
 
-# tambahkan message user terbaru
-messages.append({
-    "role": "user",
-    "content": user_message
-})
-
-# call Groq dengan context
-ai_reply = call_groq(messages)
-
+# =========================
+# HISTORY ENDPOINT
+# =========================
 @app.get("/history")
 def history():
 
@@ -112,6 +153,21 @@ def history():
         SELECT id, role, message
         FROM chat_history
         ORDER BY id DESC
+        LIMIT 50
+    """)
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return [
+        {
+            "id": row[0],
+            "role": row[1],
+            "message": row[2]
+        }
+        for row in rows
+    ]        ORDER BY id DESC
         LIMIT 50
     """)
 
