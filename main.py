@@ -1,21 +1,24 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from database import get_conn, init_db
+from database import get_conn
 import os
 import requests
+from datetime import datetime
 
 app = FastAPI()
 
-# INIT DATABASE TABLES
-init_db()
+
+# =========================
+# Request Model
+# =========================
 
 class ChatRequest(BaseModel):
     message: str
 
 
-# ========================
-# GROQ CALL FUNCTION
-# ========================
+# =========================
+# Groq AI Call
+# =========================
 
 def call_groq(messages):
 
@@ -43,28 +46,47 @@ def call_groq(messages):
     return result["choices"][0]["message"]["content"]
 
 
-# ========================
-# ROOT
-# ========================
+# =========================
+# Telegram Send
+# =========================
+
+def send_telegram(message: str):
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    if not token or not chat_id:
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    payload = {
+        "chat_id": chat_id,
+        "text": message
+    }
+
+    requests.post(url, json=payload)
+
+
+# =========================
+# Root
+# =========================
 
 @app.get("/")
 def root():
     return {"status": "ok"}
 
 
-# ========================
-# CHAT ENDPOINT WITH MEMORY
-# ========================
+# =========================
+# Chat Endpoint
+# =========================
 
 @app.post("/chat")
 def chat(req: ChatRequest):
 
-    user_message = req.message
-
     conn = get_conn()
     cursor = conn.cursor()
 
-    # create table if not exists
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,9 +98,8 @@ def chat(req: ChatRequest):
     # save user message
     cursor.execute(
         "INSERT INTO chat_history (role, message) VALUES (?, ?)",
-        ("user", user_message)
+        ("user", req.message)
     )
-
     conn.commit()
 
     # get last 10 messages
@@ -90,14 +111,10 @@ def chat(req: ChatRequest):
     """)
 
     rows = cursor.fetchall()
-
     rows.reverse()
 
     messages = [
-        {
-            "role": "system",
-            "content": "You are a helpful assistant."
-        }
+        {"role": "system", "content": "You are a helpful assistant."}
     ]
 
     for row in rows:
@@ -108,13 +125,11 @@ def chat(req: ChatRequest):
 
     messages.append({
         "role": "user",
-        "content": user_message
+        "content": req.message
     })
 
-    # call groq with context
     ai_reply = call_groq(messages)
 
-    # save reply
     cursor.execute(
         "INSERT INTO chat_history (role, message) VALUES (?, ?)",
         ("assistant", ai_reply)
@@ -123,14 +138,12 @@ def chat(req: ChatRequest):
     conn.commit()
     conn.close()
 
-    return {
-        "reply": ai_reply
-    }
+    return {"reply": ai_reply}
 
 
-# ========================
-# HISTORY ENDPOINT
-# ========================
+# =========================
+# History Endpoint
+# =========================
 
 @app.get("/history")
 def history():
@@ -146,7 +159,6 @@ def history():
     """)
 
     rows = cursor.fetchall()
-
     conn.close()
 
     return [
@@ -157,25 +169,39 @@ def history():
         }
         for row in rows
     ]
-    
-@app.post("/scrape")
+
+
+# =========================
+# Scrape Endpoint
+# =========================
+
+@app.get("/scrape")
 def scrape():
 
     conn = get_conn()
     cursor = conn.cursor()
 
-    # contoh dummy data ingestion
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,
+            content TEXT,
+            created_at TEXT
+        )
+    """)
+
     sample_data = [
         ("reddit", "Python job demand increasing"),
         ("reddit", "AI engineer salaries rising"),
         ("jobs", "Remote backend roles growing")
     ]
 
-    for source, content in sample_data:
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
+    for source, content in sample_data:
         cursor.execute(
-            "INSERT INTO raw_data (source, content) VALUES (?, ?)",
-            (source, content)
+            "INSERT INTO raw_data (source, content, created_at) VALUES (?, ?, ?)",
+            (source, content, now)
         )
 
     conn.commit()
@@ -186,38 +212,25 @@ def scrape():
         "records_added": len(sample_data)
     }
 
-@app.get("/data")
-def get_data():
+
+# =========================
+# Analyze Endpoint
+# =========================
+
+@app.get("/analyze")
+def analyze():
 
     conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, source, content, created_at
-        FROM raw_data
-        ORDER BY id DESC
-        LIMIT 50
+        CREATE TABLE IF NOT EXISTS signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal TEXT,
+            confidence REAL,
+            created_at TEXT
+        )
     """)
-
-    rows = cursor.fetchall()
-
-    conn.close()
-
-    return [
-        {
-            "id": row[0],
-            "source": row[1],
-            "content": row[2],
-            "created_at": row[3]
-        }
-        for row in rows
-    ]
-
-@app.post("/analyze")
-def analyze():
-
-    conn = get_conn()
-    cursor = conn.cursor()
 
     cursor.execute("""
         SELECT content
@@ -228,27 +241,26 @@ def analyze():
 
     rows = cursor.fetchall()
 
-    if not rows:
-        return {"error": "no data"}
-
-    combined = "\n".join([row[0] for row in rows])
+    text_data = "\n".join([row[0] for row in rows])
 
     messages = [
         {
             "role": "system",
-            "content": "Analyze the following data and produce 3 concise insights."
+            "content": "Analyze job market trends and produce intelligence insights."
         },
         {
             "role": "user",
-            "content": combined
+            "content": text_data
         }
     ]
 
-    insight = call_groq(messages)
+    signal = call_groq(messages)
+
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
     cursor.execute(
-        "INSERT INTO signals (signal, confidence) VALUES (?, ?)",
-        (insight, 0.9)
+        "INSERT INTO signals (signal, confidence, created_at) VALUES (?, ?, ?)",
+        (signal, 0.9, now)
     )
 
     conn.commit()
@@ -256,8 +268,13 @@ def analyze():
 
     return {
         "status": "analysis complete",
-        "signal": insight
+        "signal": signal
     }
+
+
+# =========================
+# Get Signals
+# =========================
 
 @app.get("/signals")
 def get_signals():
@@ -273,7 +290,6 @@ def get_signals():
     """)
 
     rows = cursor.fetchall()
-
     conn.close()
 
     return [
@@ -286,68 +302,23 @@ def get_signals():
         for row in rows
     ]
 
-@app.post("/cron/run")
+
+# =========================
+# Cron Automation
+# =========================
+
+@app.get("/cron/run")
 def cron_run():
 
-    conn = get_conn()
-    cursor = conn.cursor()
+    scrape()
 
-    # ====================
-    # STEP 1: SCRAPE (dummy for now)
-    # ====================
+    result = analyze()
 
-    sample_data = [
-        ("cron", "Backend demand increasing"),
-        ("cron", "AI infrastructure roles growing"),
-        ("cron", "Remote engineering continues rising")
-    ]
+    signal = result["signal"]
 
-    for source, content in sample_data:
-
-        cursor.execute(
-            "INSERT INTO raw_data (source, content) VALUES (?, ?)",
-            (source, content)
-        )
-
-    conn.commit()
-
-    # ====================
-    # STEP 2: ANALYZE
-    # ====================
-
-    cursor.execute("""
-        SELECT content
-        FROM raw_data
-        ORDER BY id DESC
-        LIMIT 20
-    """)
-
-    rows = cursor.fetchall()
-
-    combined = "\n".join([row[0] for row in rows])
-
-    messages = [
-        {
-            "role": "system",
-            "content": "Analyze the following data and produce concise intelligence insights."
-        },
-        {
-            "role": "user",
-            "content": combined
-        }
-    ]
-
-    insight = call_groq(messages)
-
-    cursor.execute(
-        "INSERT INTO signals (signal, confidence) VALUES (?, ?)",
-        (insight, 0.95)
-    )
-
-    conn.commit()
-    conn.close()
+    send_telegram(signal)
 
     return {
         "status": "automation complete",
-        "signal": insight
+        "signal": signal
     }
