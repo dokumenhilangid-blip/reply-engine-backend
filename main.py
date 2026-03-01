@@ -1,57 +1,78 @@
 from fastapi import FastAPI
-from database import init_db, get_conn
+from pydantic import BaseModel
+from database import get_conn
 
 app = FastAPI()
 
-@app.on_event("startup")
-def startup():
-    init_db()
 
+# health check
 @app.get("/")
 def root():
-    return {"status": "backend alive"}
-
-@app.get("/test-db")
-def test_db():
-    return {"status": "database ready"}
+    return {"status": "ok"}
 
 
-@app.get("/test-write")
-def test_write():
+# model request
+class ChatRequest(BaseModel):
+    message: str
+
+
+# endpoint chat
+@app.post("/chat")
+def chat(req: ChatRequest):
+
+    user_message = req.message
+
     conn = get_conn()
     cursor = conn.cursor()
 
+    # buat tabel jika belum ada
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS test_table (
+        CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT,
             message TEXT
         )
     """)
 
+    # simpan pesan user
     cursor.execute(
-        "INSERT INTO test_table (message) VALUES (?)",
-        ("hello persistent storage",)
+        "INSERT INTO chat_history (role, message) VALUES (?, ?)",
+        ("user", user_message)
+    )
+
+    # response sementara
+    ai_reply = f"echo: {user_message}"
+
+    # simpan response AI
+    cursor.execute(
+        "INSERT INTO chat_history (role, message) VALUES (?, ?)",
+        ("assistant", ai_reply)
     )
 
     conn.commit()
     conn.close()
 
-    return {"status": "write success"}
+    return {"reply": ai_reply}
 
 
-@app.get("/test-read")
-def test_read():
+# endpoint lihat history (opsional tapi penting untuk debug)
+@app.get("/history")
+def history():
+
     conn = get_conn()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT id, message FROM test_table ORDER BY id DESC LIMIT 1"
-    )
+    cursor.execute("""
+        SELECT id, role, message
+        FROM chat_history
+        ORDER BY id DESC
+        LIMIT 20
+    """)
 
-    row = cursor.fetchone()
+    rows = cursor.fetchall()
     conn.close()
 
-    if row:
-        return {"id": row[0], "message": row[1]}
-    else:
-        return {"status": "no data"}
+    return [
+        {"id": r[0], "role": r[1], "message": r[2]}
+        for r in rows
+    ]
