@@ -66,18 +66,41 @@ def chat(req: ChatRequest):
     # call Groq AI
     ai_reply = call_groq(user_message)
 
-    cursor.execute(
-        "INSERT INTO chat_history (role, message) VALUES (?, ?)",
-        ("assistant", ai_reply)
-    )
+    # ambil 10 history terakhir
+cursor.execute("""
+    SELECT role, message
+    FROM chat_history
+    ORDER BY id DESC
+    LIMIT 10
+""")
 
-    conn.commit()
-    conn.close()
+rows = cursor.fetchall()
 
-    return {
-        "reply": ai_reply
+# balik urutan supaya chronological
+rows.reverse()
+
+messages = [
+    {
+        "role": "system",
+        "content": "You are a helpful assistant."
     }
+]
 
+# masukkan history
+for row in rows:
+    messages.append({
+        "role": row[0],
+        "content": row[1]
+    })
+
+# tambahkan message user terbaru
+messages.append({
+    "role": "user",
+    "content": user_message
+})
+
+# call Groq dengan context
+ai_reply = call_groq(messages)
 
 @app.get("/history")
 def history():
