@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from database import get_conn
+from database import get_conn, init_db
 import os
 import requests
 
 app = FastAPI()
 
+# INIT DATABASE TABLES
+init_db()
 
 class ChatRequest(BaseModel):
     message: str
