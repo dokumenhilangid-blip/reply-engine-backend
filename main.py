@@ -155,3 +155,31 @@ def history():
         }
         for row in rows
     ]
+    
+@app.post("/scrape")
+def scrape():
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # contoh dummy data ingestion
+    sample_data = [
+        ("reddit", "Python job demand increasing"),
+        ("reddit", "AI engineer salaries rising"),
+        ("jobs", "Remote backend roles growing")
+    ]
+
+    for source, content in sample_data:
+
+        cursor.execute(
+            "INSERT INTO raw_data (source, content) VALUES (?, ?)",
+            (source, content)
+        )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "scrape complete",
+        "records_added": len(sample_data)
+    }
