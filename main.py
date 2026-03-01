@@ -10,7 +10,7 @@ app = FastAPI()
 class ChatRequest(BaseModel):
     message: str
 
-def call_groq(user_message: str):
+def call_groq(messages):
 
     url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -21,12 +21,7 @@ def call_groq(user_message: str):
 
     data = {
         "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {
-                "role": "user",
-                "content": user_message
-            }
-        ],
+        "messages": messages,
         "temperature": 0.7,
         "max_tokens": 512
     }
@@ -39,7 +34,6 @@ def call_groq(user_message: str):
     result = response.json()
 
     return result["choices"][0]["message"]["content"]
-
 
 @app.get("/")
 def root():
