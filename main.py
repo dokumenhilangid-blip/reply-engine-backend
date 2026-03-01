@@ -21,7 +21,7 @@ def call_groq(user_message: str):
     }
 
     data = {
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "user",
@@ -33,6 +33,9 @@ def call_groq(user_message: str):
     }
 
     response = requests.post(url, headers=headers, json=data)
+
+    if response.status_code != 200:
+        return f"GROQ ERROR: {response.text}"
 
     result = response.json()
 
