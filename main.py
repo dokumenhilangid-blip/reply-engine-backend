@@ -285,3 +285,69 @@ def get_signals():
         }
         for row in rows
     ]
+
+@app.post("/cron/run")
+def cron_run():
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # ====================
+    # STEP 1: SCRAPE (dummy for now)
+    # ====================
+
+    sample_data = [
+        ("cron", "Backend demand increasing"),
+        ("cron", "AI infrastructure roles growing"),
+        ("cron", "Remote engineering continues rising")
+    ]
+
+    for source, content in sample_data:
+
+        cursor.execute(
+            "INSERT INTO raw_data (source, content) VALUES (?, ?)",
+            (source, content)
+        )
+
+    conn.commit()
+
+    # ====================
+    # STEP 2: ANALYZE
+    # ====================
+
+    cursor.execute("""
+        SELECT content
+        FROM raw_data
+        ORDER BY id DESC
+        LIMIT 20
+    """)
+
+    rows = cursor.fetchall()
+
+    combined = "\n".join([row[0] for row in rows])
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Analyze the following data and produce concise intelligence insights."
+        },
+        {
+            "role": "user",
+            "content": combined
+        }
+    ]
+
+    insight = call_groq(messages)
+
+    cursor.execute(
+        "INSERT INTO signals (signal, confidence) VALUES (?, ?)",
+        (insight, 0.95)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "automation complete",
+        "signal": insight
+    }
