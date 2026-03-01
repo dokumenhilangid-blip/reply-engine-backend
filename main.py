@@ -258,3 +258,30 @@ def analyze():
         "status": "analysis complete",
         "signal": insight
     }
+
+@app.get("/signals")
+def get_signals():
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, signal, confidence, created_at
+        FROM signals
+        ORDER BY id DESC
+        LIMIT 20
+    """)
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return [
+        {
+            "id": row[0],
+            "signal": row[1],
+            "confidence": row[2],
+            "created_at": row[3]
+        }
+        for row in rows
+    ]
