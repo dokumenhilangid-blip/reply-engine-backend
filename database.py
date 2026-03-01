@@ -13,7 +13,6 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
 
-    # chat history
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,12 +21,20 @@ def init_db():
         )
     """)
 
-    # raw data table (NEW)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS raw_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT,
             content TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal TEXT,
+            confidence REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
