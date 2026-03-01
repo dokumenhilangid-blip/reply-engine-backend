@@ -212,3 +212,49 @@ def get_data():
         }
         for row in rows
     ]
+
+@app.post("/analyze")
+def analyze():
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT content
+        FROM raw_data
+        ORDER BY id DESC
+        LIMIT 20
+    """)
+
+    rows = cursor.fetchall()
+
+    if not rows:
+        return {"error": "no data"}
+
+    combined = "\n".join([row[0] for row in rows])
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Analyze the following data and produce 3 concise insights."
+        },
+        {
+            "role": "user",
+            "content": combined
+        }
+    ]
+
+    insight = call_groq(messages)
+
+    cursor.execute(
+        "INSERT INTO signals (signal, confidence) VALUES (?, ?)",
+        (insight, 0.9)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "analysis complete",
+        "signal": insight
+    }
