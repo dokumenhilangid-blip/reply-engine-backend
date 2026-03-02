@@ -308,7 +308,7 @@ def get_signals():
 # =========================
 
 @app.get("/cron/run")
-def cron_run():
+def run_cron():
 
     scrape()
 
